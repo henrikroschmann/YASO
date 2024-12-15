@@ -6,6 +6,12 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+	<PropertyGroup>
+		<PackageId>Yaso</PackageId>
+		<Version>0.0.1</Version>
+		<Authors>Henrik Röschmann</Authors>
+	</PropertyGroup>
+
 	<ItemGroup>
 		<InternalsVisibleTo Include="YASOTests" />
 	</ItemGroup>

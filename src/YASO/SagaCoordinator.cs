@@ -3,31 +3,26 @@ using YASO.Domain;
 
 namespace YASO;
 
-public class SagaCoordinator(ISagaRepository sagaRepository)
+public static class SagaCoordinator
 {
-    private readonly ISagaRepository _sagaRepository = sagaRepository;
-
-    public async Task ExecuteSagaAsync(Saga saga, CancellationToken cancellationToken)
+    public static async Task<SagaStoredState> ExecuteSagaAsync(Saga saga)
     {
         if (ExitIfCompleted(saga))
         {
-            return;
+            return saga.ExportSaga();
         }
 
         foreach (var step in saga.GetEligibleSteps())
         {
-            if (await step.ExecuteStep())
+            if (await step.ExecuteStep().ConfigureAwait(false))
             {
                 step.MarkAsCompleted();
             }
         }
 
         saga.MarkAsCompleted();
-        await _sagaRepository.SaveSaga(saga, cancellationToken);
+        return saga.ExportSaga();
     }
-
-    public async Task<Saga> GetSagaAsync(ISagaIdentifier sagaIdentifier, CancellationToken cancellationToken) =>
-         await _sagaRepository.GetSagaAsync(sagaIdentifier, cancellationToken);
 
     private static bool ExitIfCompleted(Saga saga)
     {

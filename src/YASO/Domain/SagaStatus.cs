@@ -1,4 +1,6 @@
-﻿namespace YASO.Domain;
+﻿using YASO.Domain;
+
+namespace YASO.Domain;
 
 public enum SagaStatus
 {

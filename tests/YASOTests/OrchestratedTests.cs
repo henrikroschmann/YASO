@@ -1,5 +1,4 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
-using NSubstitute;
 using YASO;
 using YASO.Domain;
 using YASOTests.Setup;
@@ -13,9 +12,13 @@ internal class OrchestratedTests
     [Before(Test)]
     public void Setup()
     {
-        var serviceProvider = Substitute.For<IServiceProvider>();
-        serviceProvider.GetService<TestOrchestratedMethod>().Returns(new TestOrchestratedMethod());
-        _saga = new Saga(serviceProvider, new TestRepository());
+        var serviceCollection = new ServiceCollection();
+        serviceCollection.AddTransient<StepA>();
+        serviceCollection.AddTransient<StepB>();
+        serviceCollection.AddTransient<StepC>();
+        var sp = serviceCollection.BuildServiceProvider();
+
+        _saga = new Saga(sp);
 
         var id = new Identifier
         {
@@ -23,22 +26,20 @@ internal class OrchestratedTests
         };
 
         _saga = _saga.CreateNewSaga(id)
-            .AddStep<TestOrchestratedMethod>("first")
-            .AddStep<TestOrchestratedMethod>("second", "first")
-            .AddStep<TestOrchestratedMethod>("third", "second")
-            .When(1 == 1, saga => saga.AddStep<TestOrchestratedMethod>("fourth", "first", "third"))
-            .AddStep<TestOrchestratedMethod>("five");
+            .AddStep<StepA>("first")
+            .AddStep<StepB>("second", "first")
+            .AddStep<StepC>("third", "second")
+            .When(1 == 1, saga => saga.AddStep<StepA>("fourth", "first", "third"))
+            .AddStep<StepB>("five")
+            .BuildSaga();
     }
 
     [Test]
     public async Task ExecuteSagaInOrchestratedFashionAsync()
     {
-        var respository = new TestRepository();
-        var sc = new SagaCoordinator(respository);
-
         do
         {
-            await sc.ExecuteSagaAsync(_saga, CancellationToken.None);
+            await SagaCoordinator.ExecuteSagaAsync(_saga);
         } while (_saga.Status != SagaStatus.Success);
 
         await Assert.That(_saga.Status).IsEquivalentTo(SagaStatus.Success);

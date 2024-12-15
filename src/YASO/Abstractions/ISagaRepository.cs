@@ -4,7 +4,7 @@ namespace YASO.Abstractions;
 
 public interface ISagaRepository
 {
-    Task SaveSaga(Saga saga, CancellationToken cancellationToken);
+    Task SaveSaga(SagaStoredState saga, CancellationToken cancellationToken = default);
 
-    Task<Saga> GetSagaAsync(ISagaIdentifier sagaIdentifier, CancellationToken cancellationToken);
+    Task<SagaStoredState> GetSagaAsync(ISagaIdentifier sagaIdentifier, CancellationToken cancellationToken = default);
 }

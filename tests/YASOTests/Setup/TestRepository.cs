@@ -6,16 +6,16 @@ namespace YASOTests.Setup;
 
 internal class TestRepository : ISagaRepository
 {
-    public string data { get; private set; }
+    public string Data { get; private set; } = string.Empty;
 
-    public async Task<Saga> GetSagaAsync(ISagaIdentifier sagaIdentifier, CancellationToken cancellationToken)
+    public async Task<SagaStoredState> GetSagaAsync(ISagaIdentifier sagaIdentifier, CancellationToken cancellationToken)
     {
-        return JsonSerializer.Deserialize<Saga>(data);
+        return JsonSerializer.Deserialize<SagaStoredState>(Data) ?? throw new InvalidOperationException("Deserialization failed");
     }
 
-    public Task SaveSaga(Saga saga, CancellationToken cancellationToken)
+    public Task SaveSaga(SagaStoredState saga, CancellationToken cancellationToken = default)
     {
-        data = JsonSerializer.Serialize(saga);
+        Data = JsonSerializer.Serialize(saga);
         return Task.CompletedTask;
     }
 }

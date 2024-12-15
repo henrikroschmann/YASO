@@ -1,11 +1,13 @@
-﻿using YASO.Abstractions;
+﻿using System.Text.Json.Serialization;
+using YASO.Abstractions;
 
 namespace YASO.Domain;
 
 public record SagaStep(string Name, string[] DependsOn) : Entity
 {
+    [JsonIgnore]
     private ISagaStep? _action;
-    private bool reactiveStep = false;
+    public bool IsReactive { get; private set; }
 
     internal void AddAction(ISagaStep action)
     {
@@ -14,17 +16,22 @@ public record SagaStep(string Name, string[] DependsOn) : Entity
 
     internal void AddReaction()
     {
-        reactiveStep = true;
+        IsReactive = true;
     }
 
     internal async Task<bool> ExecuteStep()
     {
-        if (reactiveStep) { return false; }
+        if (IsReactive) { return false; }
         if (_action == null)
         {
             throw new InvalidOperationException("Action is not set.");
         }
-        await _action.Action();
-        return true;
+        return await _action.Action().ConfigureAwait(false);
+    }
+
+    internal void SetStatus(SagaStatus status)
+    {
+        typeof(Entity).GetProperty(nameof(Status))!
+            .SetValue(this, status);
     }
 }

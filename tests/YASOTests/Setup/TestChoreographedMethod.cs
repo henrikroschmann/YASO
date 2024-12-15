@@ -1,9 +1,10 @@
 ﻿using YASO;
 using YASO.Abstractions;
+using YASO.Domain;
 
 namespace YASOTests.Setup;
 
-internal class TestChoreographedMethod(SagaCoordinator sagaCoordinator) : ISagaStep
+internal class TestChoreographedMethod(ISagaRepository sagaRepository, Saga saga) : ISagaStep
 {
     public Task<bool> Action()
     {
@@ -11,11 +12,15 @@ internal class TestChoreographedMethod(SagaCoordinator sagaCoordinator) : ISagaS
         return Task.FromResult(true);
     }
 
-    public async Task<bool> Reaction<T>(ISagaIdentifier sagaIdentifier, string stepName, T? data)
+    public async Task<SagaStoredState> Reaction<T>(ISagaIdentifier sagaIdentifier, string stepName, T? data)
     {
-        var saga = await sagaCoordinator.GetSagaAsync(sagaIdentifier, CancellationToken.None);
-        saga?.Steps.FirstOrDefault(x => x.Name == stepName)?.MarkAsCompleted();
-        await sagaCoordinator.ExecuteSagaAsync(saga, CancellationToken.None);
-        return true;
+        var sagaState = await sagaRepository.GetSagaAsync(sagaIdentifier);
+        saga.ReloadSaga(sagaState);
+
+        Console.WriteLine(data);
+
+        saga?.Steps.FirstOrDefault(x => x.Name.Equals(stepName, StringComparison.InvariantCultureIgnoreCase))?
+            .MarkAsCompleted();
+        return await SagaCoordinator.ExecuteSagaAsync(saga);
     }
 }

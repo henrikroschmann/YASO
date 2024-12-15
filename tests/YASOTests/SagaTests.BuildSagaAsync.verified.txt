@@ -1,4 +1,8 @@
 ﻿{
-  ServiceProvider: {},
-  Identifier: {}
+  Id: Guid_1,
+  StepStatuses: {
+    first: Pending,
+    second: Pending,
+    third: Pending
+  }
 }

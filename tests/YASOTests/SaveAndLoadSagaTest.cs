@@ -1,6 +1,5 @@
-﻿using NSubstitute;
-using System.Text.Json;
-using YASO.Abstractions;
+﻿using Microsoft.Extensions.DependencyInjection;
+using YASO;
 using YASO.Domain;
 using YASOTests.Setup;
 
@@ -8,30 +7,46 @@ namespace YASOTests;
 
 public class SaveAndLoadSagaTest
 {
+    private Saga? _saga;
+
+    [Before(Test)]
+    public void Setup()
+    {
+        var serviceCollection = new ServiceCollection();
+        serviceCollection.AddTransient<StepA>();
+        serviceCollection.AddTransient<StepB>();
+        serviceCollection.AddTransient<StepC>();
+        var sp = serviceCollection.BuildServiceProvider();
+
+        _saga = new Saga(sp)
+            .CreateNewSaga(new Identifier { Id = 123 })
+            .AddStep<StepA>("first")
+            .AddStep<StepB>("second", "first")
+            .AddStep<StepC>("third", "second")
+            .BuildSaga();
+    }
+
     [Test]
     public async Task SaveAndLoadSaga()
     {
-        var sp = Substitute.For<IServiceProvider>();
         var repository = new TestRepository();
-        var saga = new Saga(sp, repository).CreateNewSaga(new Identifier { Id = 0 }).BuildSaga();
+        var data = await SagaCoordinator.ExecuteSagaAsync(_saga);
+        await data.SaveStateAsync(repository);
 
-        var result = await repository.GetSagaAsync(new Identifier { Id = 0 }, CancellationToken.None);
-        await Assert.That(result).IsEqualTo(saga);
-    }
-}
+        
 
-internal class TestRepository : ISagaRepository
-{
-    public string Data { get; private set; } = string.Empty;
+        // 2 steps should be completed
+        await Assert.That(_saga.Steps.Count(s => s.Status != SagaStatus.Success)).IsEqualTo(2);
 
-    public async Task<Saga> GetSagaAsync(ISagaIdentifier sagaIdentifier, CancellationToken cancellationToken)
-    {
-        return JsonSerializer.Deserialize<Saga>(Data) ?? throw new InvalidOperationException("Deserialization failed");
-    }
+        // progress another step without saving
+        await SagaCoordinator.ExecuteSagaAsync(_saga);
+        await Assert.That(_saga.Steps.Count(s => s.Status != SagaStatus.Success)).IsEqualTo(1);
 
-    public Task SaveSaga(Saga saga, CancellationToken cancellationToken)
-    {
-        Data = JsonSerializer.Serialize(saga);
-        return Task.CompletedTask;
+        // Let's reload the state from storage
+        var sagaStates = await repository.GetSagaAsync(new Identifier { Id = 123 }, CancellationToken.None);
+        _saga.ReloadSaga(sagaStates);
+
+        // Verify that state is restored
+        await Assert.That(_saga.Steps.Count(s => s.Status != SagaStatus.Success)).IsEqualTo(2);
     }
 }

@@ -1,49 +1,113 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using System.ComponentModel.DataAnnotations;
 using YASO.Abstractions;
 
 namespace YASO.Domain;
 
-public sealed record Saga(IServiceProvider ServiceProvider, ISagaRepository Repository) : Entity
+public sealed record Saga(IServiceProvider ServiceProvider) : Entity
 {
-    private readonly IServiceProvider _serviceProvider = ServiceProvider;
-    private readonly ISagaRepository _repository = Repository;
-    public ISagaIdentifier? Identifier { get; private set; }
+    private IServiceProvider? _serviceProvider = ServiceProvider;
+    public ISagaIdentifier? Identifier { get; private set; } // Not sure this is what I want
     public List<SagaStep> Steps { get; private set; } = [];
+    private readonly Dictionary<string, Type> _stepTypeMap = [];
+    public Dictionary<string, string> _stepTypeNames { get; private set; } = [];
+
     public Saga CreateNewSaga(ISagaIdentifier? identifier)
     {
+        Id = Guid.NewGuid();
         Identifier = identifier;
         return this;
     }
 
-    public Saga AddStep<T>(string name, params string[] dependsOn) where T : ISagaStep
+    public Saga AddStep<T>(string name, params string[] dependsOn) where T : class, ISagaStep
     {
-        var sagaStep = new SagaStep(name, dependsOn);
-        var action = _serviceProvider.GetService<T>() ?? throw new Exception("Service added for step is not registed");
-        sagaStep.AddAction(action);
-        Steps.Add(sagaStep);
+        Steps.Add(new SagaStep(name, dependsOn));
+        var type = typeof(T);
+
+        _stepTypeMap[name] = type;
+        _stepTypeNames[name] = type.AssemblyQualifiedName
+            ?? throw new InvalidOperationException("Unable to get AssemblyQualifiedName of step type.");
+
         return this;
     }
 
-    public Saga AddReativeStep<T>(string name, params string[] dependsOn) where T : ISagaStep
+    public Saga AddReactiveStep(string name, params string[] dependsOn)
     {
-        var sagaStep = new SagaStep(name, dependsOn);
-        sagaStep.AddReaction();
-        Steps.Add(sagaStep);
+        var step = new SagaStep(name, dependsOn);
+        step.AddReaction();
+        Steps.Add(step);
         return this;
     }
 
     public Saga BuildSaga()
     {
-        _repository.SaveSaga(this, new CancellationToken());
+        ValidateSteps();
+        AttachActionsFromServiceProvider();
         return this;
+    }
+
+    internal void ReloadSaga(SagaStoredState sagaStoredState)
+    {
+        SetStatus(sagaStoredState.Status);
+        foreach (var step in Steps)
+        {
+            if (sagaStoredState.StepStatuses.TryGetValue(step.Name, out var status))
+            {
+                step.SetStatus(status);
+            }
+        }
+    }
+
+    internal SagaStoredState ExportSaga()
+    {
+        return new SagaStoredState
+        {
+            Id = Id,
+            Status = Status,
+            StepStatuses = Steps.ToDictionary(x => x.Name, x => x.Status)
+        };
     }
 
     internal override void MarkAsCompleted()
     {
-        if (!Steps.Any(x => x.Status != SagaStatus.Success))
+        if (Steps.All(x => x.Status == SagaStatus.Success))
         {
             base.MarkAsCompleted();
         }
+    }
+
+    private void ValidateSteps()
+    {
+        HashSet<string> names = [];
+        foreach (var step in Steps)
+        {
+            if (!names.Add(step.Name))
+            {
+                throw new ValidationException("Step names should be unique");
+            }
+        }
+
+        foreach (var step in Steps)
+        {
+            var steps = Steps.Where(x => x.DependsOn.Contains(step.Name)).Select(x => x.Name);
+            if (step.DependsOn.Any(x => steps.Contains(x)))
+            {
+                throw new ValidationException("Circular dependancy deptect");
+            }
+        }
+    }
+
+    internal SagaStep[] GetEligibleSteps()
+    {
+        var completedSteps = Steps
+            .Where(s => s.Status == SagaStatus.Success)
+            .Select(s => s.Name)
+            .ToHashSet();
+
+        var pendingSteps = Steps.Where(s => s.Status == SagaStatus.Pending).ToList();
+
+        return pendingSteps
+            .Where(step => step.DependsOn.All(dep => completedSteps.Contains(dep)))
+            .ToArray();
     }
 
     internal Saga When(bool predicate, Func<Saga, Saga> saga)
@@ -52,39 +116,28 @@ public sealed record Saga(IServiceProvider ServiceProvider, ISagaRepository Repo
         {
             saga(this);
         }
-
         return this;
     }
 
-    internal SagaStep[] GetEligibleSteps()
+    private void AttachActionsFromServiceProvider()
     {
-        List<SagaStep> eligibleSteps = [];
-        var rootSteps = Steps.Where(s => s.DependsOn is null || s.DependsOn.Length == 0).ToList();
-        eligibleSteps.AddRange(rootSteps.Where(step => step.Status == SagaStatus.Pending));
-
-        if (eligibleSteps.Count == 0)
+        foreach (var step in Steps.Where(s => !s.IsReactive))
         {
-            GetDependentSteps(eligibleSteps, rootSteps);
-        }
-
-        return [.. eligibleSteps];
-    }
-
-    private void GetDependentSteps(List<SagaStep> eligibleSteps, List<SagaStep> rootSteps)
-    {
-        foreach (var step in rootSteps)
-        {
-            var dependentSteps = Steps.Where(s => s.DependsOn.Contains(step.Name)).ToList();
-            var activeDependentSteps = dependentSteps.Where(s => s.Status == SagaStatus.Pending).ToList();
-
-            if (activeDependentSteps.Count != 0)
+            if (_stepTypeMap.TryGetValue(step.Name, out var stepType))
             {
-                eligibleSteps.AddRange(activeDependentSteps);
+                ISagaStep? action = _serviceProvider?.GetService(stepType) as ISagaStep ?? throw new InvalidOperationException(
+                        $"No ISagaStep service registered for step '{step.Name}' of type '{stepType.FullName}'");
+                step.AddAction(action);
             }
             else
             {
-                GetDependentSteps(eligibleSteps, dependentSteps);
+                throw new InvalidOperationException($"No type mapping found for step '{step.Name}'.");
             }
         }
+    }
+    internal void SetStatus(SagaStatus status)
+    {
+        typeof(Entity).GetProperty(nameof(Status))!
+            .SetValue(this, status);
     }
 }

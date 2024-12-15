@@ -1,4 +1,6 @@
-﻿namespace YASO.Abstractions;
+﻿using YASO.Domain;
+
+namespace YASO.Abstractions;
 
 public interface ISagaStep
 {
@@ -13,5 +15,5 @@ public interface ISagaStep
     /// Still recommended to use the coordnator GetSaga and Execute
     /// </summary>s
     /// <returns></returns>
-    Task<bool> Reaction<T>(ISagaIdentifier sagaIdentifier, string stepName, T data);
+    Task<SagaStoredState> Reaction<T>(ISagaIdentifier sagaIdentifier, string stepName, T data);
 }
